@@ -2,9 +2,11 @@ import streamlit as st
 from google_auth_oauthlib.flow import Flow
 from google.oauth2 import id_token
 from google.auth.transport import requests as grequests
-import urllib.parse
 import datetime
-from utils.sheets import get_sheet, upsert_user_cache, is_admin
+import secrets
+import hashlib
+import base64
+from utils.sheets import upsert_user_cache, is_admin
 
 SCOPES = [
     "openid",
@@ -26,6 +28,14 @@ def get_flow():
     flow.redirect_uri = st.secrets["oauth"]["redirect_uri"]
     return flow
 
+def generate_pkce():
+    """產生 PKCE code_verifier 與 code_challenge"""
+    code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode()).digest()
+    ).rstrip(b"=").decode()
+    return code_verifier, code_challenge
+
 def login():
     """顯示登入按鈕，處理 OAuth callback"""
     params = st.query_params
@@ -34,7 +44,16 @@ def login():
     if "code" in params:
         try:
             flow = get_flow()
-            flow.fetch_token(code=params["code"])
+            # 取回之前存的 code_verifier
+            code_verifier = st.session_state.get("pkce_verifier", None)
+            if code_verifier:
+                flow.fetch_token(
+                    code=params["code"],
+                    code_verifier=code_verifier
+                )
+            else:
+                flow.fetch_token(code=params["code"])
+
             credentials = flow.credentials
             id_info = id_token.verify_oauth2_token(
                 credentials.id_token,
@@ -46,11 +65,18 @@ def login():
                 "name": id_info.get("name", id_info["email"].split("@")[0]),
             }
             st.session_state["user"] = user
+            # 清除 PKCE verifier
+            if "pkce_verifier" in st.session_state:
+                del st.session_state["pkce_verifier"]
             upsert_user_cache(user["email"], user["name"])
             st.query_params.clear()
             st.rerun()
         except Exception as e:
-            st.error(f"登入失敗：{e}")
+            st.error(f"登入失敗，請重新嘗試。（{e}）")
+            # 清除殘留參數，讓使用者可以重新登入
+            st.query_params.clear()
+            if "pkce_verifier" in st.session_state:
+                del st.session_state["pkce_verifier"]
             return
 
     # 未登入：顯示登入頁面
@@ -63,10 +89,16 @@ def login():
             </div>
         """, unsafe_allow_html=True)
 
+        # 產生 PKCE 並存入 session
+        code_verifier, code_challenge = generate_pkce()
+        st.session_state["pkce_verifier"] = code_verifier
+
         flow = get_flow()
         auth_url, _ = flow.authorization_url(
             prompt="select_account",
-            access_type="offline"
+            access_type="offline",
+            code_challenge=code_challenge,
+            code_challenge_method="S256"
         )
 
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -77,6 +109,8 @@ def login():
 def require_login():
     """確保已登入，否則導向登入流程"""
     login()
+    if "user" not in st.session_state:
+        st.stop()
     return st.session_state["user"]
 
 def require_admin():
