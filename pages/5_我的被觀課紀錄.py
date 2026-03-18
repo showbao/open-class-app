@@ -3,6 +3,7 @@ import json
 from utils.auth import require_login
 from utils.sheets import (get_sessions_by_teacher, get_observations_by_session,
                            get_indicator_name, update_teacher_reflection, get_sub_indicators)
+from utils.drive import decode_photo_urls
 
 st.set_page_config(page_title="我的被觀課紀錄", page_icon="📂", layout="wide")
 user = require_login()
@@ -18,7 +19,6 @@ if sessions.empty:
     st.page_link("pages/1_登記觀課.py", label="✏️ 前往登記")
     st.stop()
 
-# 排序：最新在前
 sessions = sessions.sort_values("created_at", ascending=False).reset_index(drop=True)
 
 selected_id = st.selectbox(
@@ -46,8 +46,6 @@ else:
     st.markdown(f"#### 觀課紀錄（共 {len(obs_df)} 位觀課者）")
     for _, obs in obs_df.iterrows():
         with st.expander(f"👤 {obs['observer_name']}　（{obs['submitted_at']}）"):
-
-            # 量表分數
             try:
                 scores = json.loads(obs["indicator_scores"])
             except:
@@ -58,28 +56,25 @@ else:
                 score_cols = st.columns(len(sub_items))
                 for i, sub in enumerate(sub_items):
                     with score_cols[i]:
-                        v = scores.get(sub["sub_id"], "-")
-                        st.metric(label=f"{sub['sub_id']}", value=v)
+                        st.metric(label=f"{sub['sub_id']}", value=scores.get(sub["sub_id"], "-"))
 
             st.divider()
             st.markdown("**觀課質性記錄**")
             st.markdown(obs["qualitative_notes"] or "（未填寫）")
-
             st.markdown("**觀課者自我省思**")
             st.markdown(obs["self_reflection"] or "（未填寫）")
 
-            # 照片
-            if obs["photo_urls"]:
+            # 顯示 base64 照片
+            photos = decode_photo_urls(obs["photo_urls"])
+            if photos:
                 st.markdown("**課堂照片**")
-                urls = [u.strip() for u in obs["photo_urls"].split(",") if u.strip()]
-                img_cols = st.columns(min(len(urls), 4))
-                for i, url in enumerate(urls):
+                img_cols = st.columns(min(len(photos), 4))
+                for i, b64 in enumerate(photos):
                     with img_cols[i % 4]:
-                        st.image(url, use_container_width=True)
+                        st.image(b64, use_container_width=True)
 
 st.divider()
 
-# ── 被觀課者填寫省思 ──────────────────────────────────────
 st.markdown("#### 您的教學省思")
 already_reflection = str(row.get("teacher_reflection", "") or "")
 already_adjustment = str(row.get("teacher_adjustment", "") or "")
