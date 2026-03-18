@@ -1,9 +1,9 @@
 import streamlit as st
 import json
-import pandas as pd
 from utils.auth import require_admin
 from utils.sheets import (get_sessions_all, get_observations_by_session,
                            get_indicator_name, get_sub_indicators)
+from utils.drive import decode_photo_urls
 
 st.set_page_config(page_title="主管總覽", page_icon="🔑", layout="wide")
 user = require_admin()
@@ -20,7 +20,6 @@ if sessions.empty:
 
 sessions = sessions.sort_values("date", ascending=False).reset_index(drop=True)
 
-# ── 篩選列 ────────────────────────────────────────────────
 fc1, fc2, fc3 = st.columns(3)
 with fc1:
     teachers = ["全部"] + sorted(sessions["teacher_name"].unique().tolist())
@@ -37,19 +36,15 @@ if filter_teacher != "全部":
 if filter_subject != "全部":
     filtered = filtered[filtered["subject"] == filter_subject]
 if filter_indicator != "全部":
-    ind_id = filter_indicator[0]
-    filtered = filtered[filtered["indicator_id"] == ind_id]
+    filtered = filtered[filtered["indicator_id"] == filter_indicator[0]]
 
 st.divider()
-
-# ── 總覽表格 ──────────────────────────────────────────────
 st.markdown(f"#### 共 {len(filtered)} 場")
 
 for _, row in filtered.iterrows():
     obs_df = get_observations_by_session(row["session_id"])
     obs_filled = len(obs_df) > 0
-    teacher_filled = bool(str(row.get("teacher_reflection","")).strip())
-
+    teacher_filled = bool(str(row.get("teacher_reflection", "")).strip())
     obs_icon = "✅" if obs_filled else "⬜"
     teacher_icon = "✅" if teacher_filled else "⬜"
     ind_name = get_indicator_name(row["indicator_id"])
@@ -67,7 +62,6 @@ for _, row in filtered.iterrows():
             if st.button("查看詳情", key=f"detail_{row['session_id']}"):
                 st.session_state["admin_session"] = row.to_dict()
 
-# ── 詳情展開 ──────────────────────────────────────────────
 if "admin_session" in st.session_state:
     s = st.session_state["admin_session"]
     obs_df = get_observations_by_session(s["session_id"])
@@ -96,15 +90,16 @@ if "admin_session" in st.session_state:
                 st.markdown(obs["qualitative_notes"] or "（未填寫）")
                 st.markdown("**觀課者省思**")
                 st.markdown(obs["self_reflection"] or "（未填寫）")
-                if obs["photo_urls"]:
-                    urls = [u.strip() for u in obs["photo_urls"].split(",") if u.strip()]
-                    img_cols = st.columns(min(len(urls), 4))
-                    for i, url in enumerate(urls):
+                photos = decode_photo_urls(obs["photo_urls"])
+                if photos:
+                    st.markdown("**課堂照片**")
+                    img_cols = st.columns(min(len(photos), 4))
+                    for i, b64 in enumerate(photos):
                         with img_cols[i % 4]:
-                            st.image(url, use_container_width=True)
+                            st.image(b64, use_container_width=True)
 
-    teacher_reflection = str(s.get("teacher_reflection","") or "")
-    teacher_adjustment = str(s.get("teacher_adjustment","") or "")
+    teacher_reflection = str(s.get("teacher_reflection", "") or "")
+    teacher_adjustment = str(s.get("teacher_adjustment", "") or "")
     if teacher_reflection or teacher_adjustment:
         st.markdown("---")
         st.markdown("**被觀課者教學省思**")
