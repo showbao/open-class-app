@@ -4,6 +4,7 @@ from utils.auth import require_login
 from utils.sheets import (get_sessions_all, get_observations_by_session,
                            get_indicator_name, get_sub_indicators,
                            is_admin, get_all_teachers)
+from utils.drive import decode_photo_urls
 
 st.set_page_config(page_title="歷年紀錄", page_icon="📊", layout="wide")
 user = require_login()
@@ -13,12 +14,10 @@ st.divider()
 
 sessions_all = get_sessions_all()
 
-# ── 主管：可選擇教師 ──────────────────────────────────────
 if is_admin(user["email"]):
     teachers_df = get_all_teachers()
     teacher_options = {row["email"]: row["name"] for _, row in teachers_df.iterrows()}
     teacher_options = {"__self__": f"（我自己）{user['name']}"} | teacher_options
-
     selected_email = st.selectbox(
         "查看教師",
         options=list(teacher_options.keys()),
@@ -43,12 +42,9 @@ if my_sessions.empty:
     st.info(f"{target_name} 尚無公開觀課紀錄")
     st.stop()
 
-# 依年份分組
 my_sessions["year"] = my_sessions["date"].apply(lambda d: str(d)[:4] if d else "未知")
 years = sorted(my_sessions["year"].unique().tolist(), reverse=True)
-
-# 篩選年份
-filter_year = st.selectbox("篩選學年度", ["全部"] + [f"{y}年" for y in years])
+filter_year = st.selectbox("篩選年度", ["全部"] + [f"{y}年" for y in years])
 
 for year in years:
     if filter_year != "全部" and filter_year != f"{year}年":
@@ -61,7 +57,7 @@ for year in years:
         obs_df = get_observations_by_session(row["session_id"])
         obs_count = len(obs_df)
         ind_name = get_indicator_name(row["indicator_id"])
-        has_reflection = bool(str(row.get("teacher_reflection","")).strip())
+        has_reflection = bool(str(row.get("teacher_reflection", "")).strip())
 
         with st.expander(
             f"📅 {row['date']}　{row['period']}　{row['subject']}｜{row['unit']}　"
@@ -83,15 +79,15 @@ for year in years:
                         score_cols = st.columns(len(sub_items))
                         for i, sub in enumerate(sub_items):
                             with score_cols[i]:
-                                st.metric(sub["sub_id"], scores.get(sub["sub_id"],"-"))
+                                st.metric(sub["sub_id"], scores.get(sub["sub_id"], "-"))
                     st.markdown("*質性記錄：*" + (obs["qualitative_notes"] or "（未填）"))
                     st.markdown("*觀課者省思：*" + (obs["self_reflection"] or "（未填）"))
-                    if obs["photo_urls"]:
-                        urls = [u.strip() for u in obs["photo_urls"].split(",") if u.strip()]
-                        img_cols = st.columns(min(len(urls), 4))
-                        for i, url in enumerate(urls):
+                    photos = decode_photo_urls(obs["photo_urls"])
+                    if photos:
+                        img_cols = st.columns(min(len(photos), 4))
+                        for i, b64 in enumerate(photos):
                             with img_cols[i % 4]:
-                                st.image(url, use_container_width=True)
+                                st.image(b64, use_container_width=True)
                     st.divider()
 
             if has_reflection:
