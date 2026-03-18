@@ -1,57 +1,54 @@
-import streamlit as st
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
-from google.oauth2.service_account import Credentials
+import base64
 import io
+from PIL import Image
 
-SCOPES = ["https://www.googleapis.com/auth/drive"]
-
-@st.cache_resource
-def get_drive_service():
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"], scopes=SCOPES
-    )
-    return build("drive", "v3", credentials=creds)
-
-def upload_photo(file_bytes: bytes, filename: str, mime_type: str = "image/jpeg") -> str:
+def compress_and_encode(file_bytes: bytes, max_size_kb: int = 200) -> str:
     """
-    上傳照片至 Google Drive 觀課照片資料夾
-    回傳可公開存取的圖片 URL
+    壓縮圖片並轉為 base64 字串
+    預設壓縮到 200KB 以下，避免 Sheets 單格超過限制
     """
-    service = get_drive_service()
-    folder_id = st.secrets["drive"]["photo_folder_id"]
+    img = Image.open(io.BytesIO(file_bytes))
 
-    file_metadata = {
-        "name": filename,
-        "parents": [folder_id],
-    }
-    media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime_type, resumable=False)
+    # 轉為 RGB（避免 PNG 透明度問題）
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
 
-    uploaded = service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields="id"
-    ).execute()
+    # 縮小尺寸：最大寬度 800px
+    max_width = 800
+    if img.width > max_width:
+        ratio = max_width / img.width
+        new_size = (max_width, int(img.height * ratio))
+        img = img.resize(new_size, Image.LANCZOS)
 
-    file_id = uploaded.get("id")
+    # 壓縮品質直到低於 max_size_kb
+    quality = 85
+    while quality >= 30:
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=quality, optimize=True)
+        size_kb = buffer.tell() / 1024
+        if size_kb <= max_size_kb:
+            break
+        quality -= 10
 
-    # 設定公開讀取權限
-    service.permissions().create(
-        fileId=file_id,
-        body={"type": "anyone", "role": "reader"},
-    ).execute()
+    buffer.seek(0)
+    encoded = base64.b64encode(buffer.read()).decode("utf-8")
+    return f"data:image/jpeg;base64,{encoded}"
 
-    return f"https://drive.google.com/thumbnail?id={file_id}&sz=w400"
-
-def upload_photos(uploaded_files, session_id: str, observer_email: str) -> list[str]:
+def encode_photos(uploaded_files) -> list[str]:
     """
-    批次上傳多張照片，回傳 URL 清單
+    批次處理多張上傳照片，回傳 base64 字串清單
     """
-    urls = []
-    for i, f in enumerate(uploaded_files):
-        ext = f.name.split(".")[-1].lower()
-        mime = "image/png" if ext == "png" else "image/jpeg"
-        filename = f"{session_id}_{observer_email.split('@')[0]}_{i+1}.{ext}"
-        url = upload_photo(f.read(), filename, mime)
-        urls.append(url)
-    return urls
+    result = []
+    for f in uploaded_files:
+        b64 = compress_and_encode(f.read())
+        result.append(b64)
+    return result
+
+def decode_photo_urls(photo_data: str) -> list[str]:
+    """
+    從 Sheets 讀出的資料解析成 base64 字串清單
+    base64 字串之間用 ||| 分隔（避免和 base64 內容衝突）
+    """
+    if not photo_data or not str(photo_data).strip():
+        return []
+    return [p.strip() for p in str(photo_data).split("|||") if p.strip()]
