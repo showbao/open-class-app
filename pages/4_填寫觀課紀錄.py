@@ -2,12 +2,11 @@ import streamlit as st
 import json
 from utils.auth import require_login
 from utils.sheets import get_sub_indicators, add_observation, get_indicator_name, has_observation
-from utils.drive import upload_photos
+from utils.drive import encode_photos, decode_photo_urls
 
 st.set_page_config(page_title="填寫觀課紀錄", page_icon="📝", layout="wide")
 user = require_login()
 
-# 確認有選取場次
 if "selected_session" not in st.session_state:
     st.warning("請先從「近期場次」選擇要觀課的場次")
     st.page_link("pages/3_近期場次.py", label="← 返回近期場次")
@@ -26,17 +25,13 @@ with st.container(border=True):
 
 st.divider()
 
-# 已填寫判斷
 already = has_observation(session["session_id"], user["email"])
 if already:
     st.info("您已填寫本場次觀課紀錄。")
-    obs_df = st.session_state.get("obs_preview")
     st.page_link("pages/3_近期場次.py", label="← 返回近期場次")
     st.stop()
 
-# ── 表單 ──────────────────────────────────────────────────
 with st.form("obs_form"):
-
     # 1. 五點量表
     st.markdown(f"#### {indicator_id}．{ind_name} — 五點量表")
     st.caption("1 = 待加強　2 = 尚可　3 = 良好　4 = 優良　5 = 傑出")
@@ -80,6 +75,7 @@ with st.form("obs_form"):
 
     # 4. 照片上傳（必填）
     st.markdown("#### 課堂照片上傳（必填）")
+    st.caption("支援 JPG / PNG，可多張，每張自動壓縮至 200KB 以下")
     uploaded_files = st.file_uploader(
         "上傳照片",
         type=["jpg", "jpeg", "png"],
@@ -87,9 +83,9 @@ with st.form("obs_form"):
         label_visibility="collapsed"
     )
     if uploaded_files:
-        cols = st.columns(min(len(uploaded_files), 5))
+        cols = st.columns(min(len(uploaded_files), 4))
         for i, f in enumerate(uploaded_files):
-            with cols[i % 5]:
+            with cols[i % 4]:
                 st.image(f, use_container_width=True)
 
     st.divider()
@@ -108,8 +104,11 @@ if submitted:
         for e in errors:
             st.error(e)
     else:
-        with st.spinner("上傳照片並儲存中…"):
-            photo_urls = upload_photos(uploaded_files, session["session_id"], user["email"])
+        with st.spinner("處理照片並儲存中…"):
+            # 轉為 base64，以 ||| 分隔多張
+            photo_b64_list = encode_photos(uploaded_files)
+            photo_data = "|||".join(photo_b64_list)
+
             add_observation(
                 session_id=session["session_id"],
                 observer_email=user["email"],
@@ -117,7 +116,7 @@ if submitted:
                 indicator_scores=scores,
                 qualitative_notes=qualitative.strip(),
                 self_reflection=self_reflection.strip(),
-                photo_urls=photo_urls,
+                photo_urls=[photo_data],   # 整包存入一格
             )
         st.success("✅ 觀課紀錄已成功送出！")
         st.balloons()
