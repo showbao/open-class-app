@@ -6,7 +6,7 @@ from utils.sheets import upsert_user_cache, is_admin
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
-
+ 
 SCOPES = "openid email profile"
 
 def get_oauth_session():
