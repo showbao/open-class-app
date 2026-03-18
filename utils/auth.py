@@ -1,62 +1,54 @@
 import streamlit as st
-from google_auth_oauthlib.flow import Flow
-from google.oauth2 import id_token
-from google.auth.transport import requests as grequests
-import datetime
+import requests
+from authlib.integrations.requests_client import OAuth2Session
 from utils.sheets import upsert_user_cache, is_admin
 
-SCOPES = [
-    "openid",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
-]
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
-def get_flow():
-    client_config = {
-        "web": {
-            "client_id": st.secrets["oauth"]["client_id"],
-            "client_secret": st.secrets["oauth"]["client_secret"],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "redirect_uris": [st.secrets["oauth"]["redirect_uri"]],
-        }
-    }
-    flow = Flow.from_client_config(client_config, scopes=SCOPES)
-    flow.redirect_uri = st.secrets["oauth"]["redirect_uri"]
-    return flow
+SCOPES = "openid email profile"
+
+def get_oauth_session():
+    return OAuth2Session(
+        client_id=st.secrets["oauth"]["client_id"],
+        client_secret=st.secrets["oauth"]["client_secret"],
+        redirect_uri=st.secrets["oauth"]["redirect_uri"],
+        scope=SCOPES,
+    )
 
 def login():
-    """顯示登入按鈕，處理 OAuth callback"""
     params = st.query_params
 
     # 處理 OAuth callback
     if "code" in params:
         try:
-            import os
-            os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+            oauth = get_oauth_session()
+            current_url = st.secrets["oauth"]["redirect_uri"] + "?code=" + params["code"]
+            if "state" in params:
+                current_url += "&state=" + params["state"]
 
-            flow = get_flow()
-            # 不使用 PKCE，直接用 code 換 token
-            flow.fetch_token(
-                code=params["code"],
+            token = oauth.fetch_token(
+                GOOGLE_TOKEN_URL,
+                authorization_response=current_url,
+                grant_type="authorization_code",
             )
-            credentials = flow.credentials
-            id_info = id_token.verify_oauth2_token(
-                credentials.id_token,
-                grequests.Request(),
-                st.secrets["oauth"]["client_id"],
-                clock_skew_in_seconds=10
-            )
+
+            # 取得使用者資訊
+            resp = oauth.get(GOOGLE_USERINFO_URL)
+            user_info = resp.json()
+
             user = {
-                "email": id_info["email"],
-                "name": id_info.get("name", id_info["email"].split("@")[0]),
+                "email": user_info["email"],
+                "name": user_info.get("name", user_info["email"].split("@")[0]),
             }
             st.session_state["user"] = user
             upsert_user_cache(user["email"], user["name"])
             st.query_params.clear()
             st.rerun()
+
         except Exception as e:
-            st.error(f"登入失敗，請重新整理頁面再試一次。（{e}）")
+            st.error(f"登入失敗，請重新整理頁面再試。（{e}）")
             st.query_params.clear()
             return
 
@@ -70,11 +62,11 @@ def login():
             </div>
         """, unsafe_allow_html=True)
 
-        flow = get_flow()
-        auth_url, _ = flow.authorization_url(
-            prompt="select_account",
+        oauth = get_oauth_session()
+        auth_url, state = oauth.create_authorization_url(
+            GOOGLE_AUTH_URL,
             access_type="offline",
-            include_granted_scopes="true"
+            prompt="select_account",
         )
 
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -83,14 +75,12 @@ def login():
         st.stop()
 
 def require_login():
-    """確保已登入，否則導向登入流程"""
     login()
     if "user" not in st.session_state:
         st.stop()
     return st.session_state["user"]
 
 def require_admin():
-    """確保為主管身份"""
     user = require_login()
     if not is_admin(user["email"]):
         st.error("⛔ 此頁面僅限單位主管使用")
