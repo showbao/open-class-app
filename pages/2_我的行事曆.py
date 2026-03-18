@@ -1,12 +1,12 @@
 import streamlit as st
+import datetime
 from utils.auth import require_login
 from utils.sheets import get_sessions_by_teacher, get_indicator_name
-from streamlit_calendar import calendar
 
-st.set_page_config(page_title="我的行事曆", page_icon="📅", layout="wide")
+st.set_page_config(page_title="我的觀課場次", page_icon="📅", layout="wide")
 user = require_login()
 
-st.title("📅 我的觀課行事曆")
+st.title("📅 我的觀課場次")
 st.divider()
 
 sessions = get_sessions_by_teacher(user["email"])
@@ -15,54 +15,42 @@ if sessions.empty:
     st.info("尚未登記任何公開觀課場次，請前往「登記觀課」新增。")
     st.page_link("pages/1_登記觀課.py", label="✏️ 前往登記")
 else:
-    # 建立行事曆事件
-    COLORS = {"A": "#2563EB", "B": "#0EA5E9", "C": "#10B981", "D": "#F59E0B"}
-    events = []
-    for _, row in sessions.iterrows():
-        color = COLORS.get(row["indicator_id"], "#6B7280")
-        events.append({
-            "title": f"{row['period']} {row['subject']}｜{row['unit']}",
-            "start": row["date"].replace("/", "-"),
-            "end":   row["date"].replace("/", "-"),
-            "color": color,
-            "extendedProps": {
-                "session_id": row["session_id"],
-                "period": row["period"],
-                "subject": row["subject"],
-                "unit": row["unit"],
-                "indicator": get_indicator_name(row["indicator_id"]),
-            }
-        })
+    sessions = sessions.sort_values("date", ascending=False).reset_index(drop=True)
 
-    calendar_options = {
-        "initialView": "dayGridMonth",
-        "locale": "zh-tw",
-        "headerToolbar": {
-            "left": "prev,next today",
-            "center": "title",
-            "right": "dayGridMonth,listMonth"
-        },
-        "height": 600,
-    }
+    col1, col2 = st.columns(2)
+    with col1:
+        subjects = ["全部"] + sorted(sessions["subject"].unique().tolist())
+        filter_subject = st.selectbox("篩選科目", subjects)
+    with col2:
+        indicators = ["全部", "A 課程設計", "B 教學策略", "C 學生學習", "D 班級經營"]
+        filter_indicator = st.selectbox("篩選指標", indicators)
 
-    cal_result = calendar(events=events, options=calendar_options)
+    filtered = sessions.copy()
+    if filter_subject != "全部":
+        filtered = filtered[filtered["subject"] == filter_subject]
+    if filter_indicator != "全部":
+        filtered = filtered[filtered["indicator_id"] == filter_indicator[0]]
 
-    # 圖例
-    st.markdown("---")
-    col1, col2, col3, col4 = st.columns(4)
-    for col, (k, label, color) in zip(
-        [col1, col2, col3, col4],
-        [("A","課程設計","#2563EB"),("B","教學策略","#0EA5E9"),
-         ("C","學生學習","#10B981"),("D","班級經營","#F59E0B")]
-    ):
-        with col:
-            st.markdown(f'<span style="color:{color}">●</span> {k}．{label}', unsafe_allow_html=True)
+    st.markdown(f"共 **{len(filtered)}** 場")
+    st.divider()
 
-    # 點擊事件：顯示場次詳情
-    if cal_result.get("eventClick"):
-        props = cal_result["eventClick"]["event"]["extendedProps"]
-        with st.expander("📌 場次詳情", expanded=True):
-            st.markdown(f"**科目**：{props['subject']}")
-            st.markdown(f"**單元**：{props['unit']}")
-            st.markdown(f"**節次**：{props['period']}")
-            st.markdown(f"**觀課指標**：{props['indicator']}")
+    INDICATOR_COLORS = {"A": "🔵", "B": "🟢", "C": "🟡", "D": "🟠"}
+
+    for _, row in filtered.iterrows():
+        ind_name = get_indicator_name(row["indicator_id"])
+        color = INDICATOR_COLORS.get(row["indicator_id"], "⚪")
+        has_reflection = bool(str(row.get("teacher_reflection", "")).strip())
+
+        with st.container(border=True):
+            c1, c2 = st.columns([4, 1])
+            with c1:
+                st.markdown(f"**{row['subject']}｜{row['unit']}**")
+                st.caption(
+                    f"📅 {row['date']}　🕐 {row['period']}　"
+                    f"{color} {row['indicator_id']}．{ind_name}"
+                )
+            with c2:
+                if has_reflection:
+                    st.success("已填省思")
+                else:
+                    st.warning("待填省思")
