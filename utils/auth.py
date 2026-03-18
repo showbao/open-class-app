@@ -71,20 +71,8 @@ def login():
 
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.markdown(f"""
-                <a href="{auth_url}" target="_self" style="
-                    display: block;
-                    text-align: center;
-                    background-color: #2563EB;
-                    color: white;
-                    padding: 0.6rem 1.2rem;
-                    border-radius: 8px;
-                    text-decoration: none;
-                    font-size: 15px;
-                    font-weight: 500;
-                    margin-top: 0.5rem;
-                ">🔐 使用 Google 帳號登入</a>
-            """, unsafe_allow_html=True)
+            st.link_button("🔐 使用 Google 帳號登入", auth_url, use_container_width=True)
+        st.info("💡 點擊後會開啟 Google 登入視窗，完成登入後請**回到此頁面**，系統將自動完成登入。")
         st.stop()
 
 def require_login():
