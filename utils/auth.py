@@ -6,7 +6,6 @@ from utils.sheets import upsert_user_cache, is_admin
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
- 
 SCOPES = "openid email profile"
 
 def get_oauth_session():
@@ -18,26 +17,24 @@ def get_oauth_session():
     )
 
 def login():
+    from utils.style import inject_global_css
+    inject_global_css()
+
     params = st.query_params
 
-    # 處理 OAuth callback
     if "code" in params:
         try:
             oauth = get_oauth_session()
             current_url = st.secrets["oauth"]["redirect_uri"] + "?code=" + params["code"]
             if "state" in params:
                 current_url += "&state=" + params["state"]
-
             token = oauth.fetch_token(
                 GOOGLE_TOKEN_URL,
                 authorization_response=current_url,
                 grant_type="authorization_code",
             )
-
-            # 取得使用者資訊
             resp = oauth.get(GOOGLE_USERINFO_URL)
             user_info = resp.json()
-
             user = {
                 "email": user_info["email"],
                 "name": user_info.get("name", user_info["email"].split("@")[0]),
@@ -46,20 +43,18 @@ def login():
             upsert_user_cache(user["email"], user["name"])
             st.query_params.clear()
             st.rerun()
-
         except Exception as e:
             st.error(f"登入失敗，請重新整理頁面再試。（{e}）")
             st.query_params.clear()
             return
 
-    # 未登入：顯示登入頁面
     if "user" not in st.session_state:
         st.markdown("""
-            <div style='text-align:center; padding: 4rem 1rem;'>
-                <div style='font-size:48px;'>📋</div>
-                <h2 style='margin:1rem 0 0.5rem;'>公開觀課平台</h2>
-                <p style='color:gray; margin-bottom:2rem;'>請使用學校 Google 帳號登入</p>
-            </div>
+        <div class="ok-login-wrap">
+            <div class="ok-login-icon">📋</div>
+            <div class="ok-login-title">公開觀課平台</div>
+            <div class="ok-login-sub">請使用學校 Google 帳號登入</div>
+        </div>
         """, unsafe_allow_html=True)
 
         oauth = get_oauth_session()
