@@ -102,6 +102,7 @@ def inject_global_css():
     }
 
     /* ── Tabs ── */
+    .stTabs [data-baseweb="tab-border"] { display: none !important; }
     .stTabs [data-baseweb="tab-list"] {
         background: white;
         border-radius: 14px;
