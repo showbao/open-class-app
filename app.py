@@ -1,8 +1,7 @@
 import streamlit as st
-from utils.auth import require_login, logout
-from utils.sheets import (get_sessions_all, get_sessions_by_teacher,
-                           get_observations_by_session, is_admin, has_observation)
 import datetime
+from utils.auth import require_login, logout
+from utils.sheets import get_sessions_all, get_observations_all, is_admin
 
 st.set_page_config(
     page_title="公開觀課平台",
@@ -11,11 +10,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.markdown("""
-<style>
-.block-container { padding-top: 1.5rem; }
-</style>
-""", unsafe_allow_html=True)
+st.markdown("<style>.block-container { padding-top: 1.5rem; }</style>", unsafe_allow_html=True)
 
 user = require_login()
 
@@ -32,41 +27,48 @@ st.title("📋 公開觀課平台")
 st.markdown(f"歡迎回來，**{user['name']}**！")
 st.divider()
 
-# ── 個人化統計 ────────────────────────────────────────────
-sessions_all = get_sessions_all()
-my_sessions = sessions_all[sessions_all["teacher_email"] == user["email"]] if not sessions_all.empty else sessions_all
+# ── 一次讀取，記憶體內計算，避免多次 API 呼叫 ──────────────
+sessions_df = get_sessions_all()
+obs_df = get_observations_all()
+today = datetime.date.today()
 
-# 待填省思：有觀課紀錄但尚未填省思
+# 我的場次
+my_sessions = sessions_df[sessions_df["teacher_email"] == user["email"]] if not sessions_df.empty else sessions_df
+
+# 待填省思：有人觀課但自己尚未填省思
 pending_reflection = 0
-if not my_sessions.empty:
+if not my_sessions.empty and not obs_df.empty:
     for _, row in my_sessions.iterrows():
-        obs = get_observations_by_session(row["session_id"])
-        if not obs.empty and not str(row.get("teacher_reflection","")).strip():
+        has_obs = not obs_df[obs_df["session_id"] == row["session_id"]].empty
+        no_reflection = not str(row.get("teacher_reflection", "")).strip()
+        if has_obs and no_reflection:
             pending_reflection += 1
 
-# 觀課者人次：自己被觀課的總人次
+# 被觀課者人次
 total_observers = 0
-if not my_sessions.empty:
-    for _, row in my_sessions.iterrows():
-        obs = get_observations_by_session(row["session_id"])
-        total_observers += len(obs)
+if not my_sessions.empty and not obs_df.empty:
+    my_ids = my_sessions["session_id"].tolist()
+    total_observers = len(obs_df[obs_df["session_id"].isin(my_ids)])
 
-# 自己尚未填寫觀課紀錄的場次（身為觀課者）
+# 待補填觀課紀錄（自己身為觀課者，已結束場次尚未填寫）
 pending_obs = 0
-if not sessions_all.empty:
-    today = datetime.date.today()
-    delta = datetime.timedelta(days=30)
-    for _, row in sessions_all.iterrows():
-        if row["teacher_email"] == user["email"]:
-            continue
+if not sessions_df.empty:
+    other_sessions = sessions_df[sessions_df["teacher_email"] != user["email"]]
+    for _, row in other_sessions.iterrows():
         try:
             d = datetime.datetime.strptime(str(row["date"]), "%Y/%m/%d").date()
         except:
             continue
-        if d <= today and not has_observation(row["session_id"], user["email"]):
-            # 只算已結束的場次
-            if d < today:
-                pending_obs += 1
+        if d >= today:
+            continue
+        already = False
+        if not obs_df.empty:
+            already = not obs_df[
+                (obs_df["session_id"] == row["session_id"]) &
+                (obs_df["observer_email"] == user["email"])
+            ].empty
+        if not already:
+            pending_obs += 1
 
 col1, col2, col3, col4 = st.columns(4)
 with col1:
