@@ -22,10 +22,16 @@ def get_sheet(sheet_name: str):
     spreadsheet_id = st.secrets["sheets"]["spreadsheet_id"]
     return client.open_by_key(spreadsheet_id).worksheet(sheet_name)
 
+# ── 加入快取：所有讀取都快取 120 秒，大幅降低 API 呼叫次數 ──
+@st.cache_data(ttl=120)
 def get_df(sheet_name: str) -> pd.DataFrame:
     ws = get_sheet(sheet_name)
     data = ws.get_all_records()
     return pd.DataFrame(data)
+
+def clear_cache():
+    """寫入資料後呼叫，清除快取讓下次讀取取得最新資料"""
+    get_df.clear()
 
 def generate_id(prefix: str) -> str:
     ts = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
@@ -40,9 +46,10 @@ def add_session(teacher_email, teacher_name, date, period, subject, unit, indica
     ws.append_row([
         session_id, teacher_email, teacher_name,
         date, period, subject, unit, indicator_id,
-        "", "",  # teacher_reflection, teacher_adjustment
+        "", "",
         now
     ])
+    clear_cache()
     return session_id
 
 def get_sessions_all() -> pd.DataFrame:
@@ -59,9 +66,10 @@ def update_teacher_reflection(session_id, reflection, adjustment):
     records = ws.get_all_records()
     for i, row in enumerate(records, start=2):
         if row["session_id"] == session_id:
-            ws.update_cell(i, 9, reflection)   # 欄 I
-            ws.update_cell(i, 10, adjustment)  # 欄 J
+            ws.update_cell(i, 9, reflection)
+            ws.update_cell(i, 10, adjustment)
             break
+    clear_cache()
 
 # ── observations ─────────────────────────────────────────
 
@@ -78,7 +86,12 @@ def add_observation(session_id, observer_email, observer_name,
         ",".join(photo_urls),
         now
     ])
+    clear_cache()
     return obs_id
+
+def get_observations_all() -> pd.DataFrame:
+    """一次讀取所有觀課紀錄，供首頁統計使用"""
+    return get_df("observations")
 
 def get_observations_by_session(session_id: str) -> pd.DataFrame:
     df = get_df("observations")
@@ -112,7 +125,7 @@ def get_indicator_name(indicator_id: str) -> str:
 
 # ── admins ───────────────────────────────────────────────
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=3600)
 def get_admins() -> pd.DataFrame:
     return get_df("admins")
 
@@ -134,9 +147,9 @@ def upsert_user_cache(email: str, name: str):
             ws.update_cell(i, 3, now)
             return
     ws.append_row([email, name, now])
+    clear_cache()
 
 def get_all_teachers() -> pd.DataFrame:
-    """主管用：取得所有曾登入的教師（排除主管本身）"""
     users = get_df("users_cache")
     admins = get_admins()
     if users.empty:
