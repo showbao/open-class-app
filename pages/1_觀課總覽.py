@@ -135,10 +135,43 @@ tab1, tab2, tab3 = st.tabs(["📌 我的觀課列表", "🏫 學校近期觀課"
 def render_session_cards(rows, key_prefix, on_click_key,
                          show_teacher=False, show_days=False,
                          show_ref_status=False, show_obs_status=False):
-    """
-    用 st.columns 搭配 st.markdown 渲染卡片，每列最多3張
-    on_click_key: session_state 的 key，點擊後設定此 key = session_id
-    """
+    """整張卡片是 st.button，點任何地方都可觸發"""
+    # 注入卡片按鈕樣式（覆蓋 Streamlit 預設按鈕外觀）
+    st.markdown("""
+    <style>
+    div[data-testid="stButton"] button.card-btn {
+        all: unset;
+        display: block;
+        width: 100%;
+        cursor: pointer;
+    }
+    /* 把所有 use_container_width 的按鈕若含 ok-session-card 樣式化 */
+    div[data-testid="stColumn"] div[data-testid="stButton"] > button {
+        background: #FAFAF8 !important;
+        border: 1px solid #DDD9D3 !important;
+        border-radius: 16px !important;
+        padding: 1.1rem 1.2rem 1rem !important;
+        text-align: left !important;
+        width: 100% !important;
+        white-space: normal !important;
+        height: auto !important;
+        color: #3D3B38 !important;
+        transition: box-shadow 0.2s, transform 0.15s, border-color 0.2s !important;
+        line-height: 1.5 !important;
+    }
+    div[data-testid="stColumn"] div[data-testid="stButton"] > button:hover {
+        box-shadow: 0 6px 20px rgba(0,0,0,0.09) !important;
+        transform: translateY(-2px) !important;
+        border-color: #7B8FA1 !important;
+        background: #F5F3F0 !important;
+        color: #3D3B38 !important;
+    }
+    div[data-testid="stColumn"] div[data-testid="stButton"] > button:active {
+        transform: translateY(0px) scale(0.99) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     for i in range(0, len(rows), 3):
         chunk = rows.iloc[i:i+3]
         cols = st.columns(3)
@@ -150,37 +183,34 @@ def render_session_cards(rows, key_prefix, on_click_key,
                 obs_count = len(obs_df[obs_df["session_id"] == row["session_id"]]) if not obs_df.empty else 0
 
                 # 日期行
-                date_html = f'<span>{row["date"]}</span><span>{row["period"]}</span>'
+                date_line = f'{row["date"]}　{row["period"]}'
                 if show_days:
                     d = parse_date(row["date"])
                     if d:
                         diff = (d - today).days
-                        label = "今天" if diff == 0 else f"{diff} 天後"
-                        date_html = f'<span>{row["date"]}</span><span class="ok-days-badge">({label})</span><span>{row["period"]}</span>'
+                        dl = "今天" if diff == 0 else f"{diff} 天後"
+                        date_line = f'{row["date"]} ({dl})　{row["period"]}'
 
-                # 狀態 badge
-                status_html = ""
+                # 狀態文字
+                status_line = ""
                 if show_ref_status:
-                    status_html += '<span class="ok-badge ok-badge-green">✅ 已填省思</span>' if has_ref else '<span class="ok-badge ok-badge-amber">⏳ 待填省思</span>'
+                    status_line = "✅ 已填省思" if has_ref else "⏳ 待填省思"
                 if show_obs_status:
-                    status_html += ' <span class="ok-badge ok-badge-green">觀課 ✅</span>' if obs_count > 0 else ' <span class="ok-badge ok-badge-gray">觀課 ⬜</span>'
-                    status_html += ' <span class="ok-badge ok-badge-green">省思 ✅</span>' if has_ref else ' <span class="ok-badge ok-badge-gray">省思 ⬜</span>'
+                    status_line = f'{"✅" if obs_count > 0 else "⬜"} 觀課　{"✅" if has_ref else "⬜"} 省思'
 
-                teacher_html = f'<span>👤 {row["teacher_name"]}</span>' if show_teacher else ''
+                teacher_line = f'👤 {row["teacher_name"]}　' if show_teacher else ''
 
-                st.markdown(f"""
-                <div class="ok-session-card">
-                    <div class="ok-card-subject">{row['subject']}｜{row['unit']}</div>
-                    <div class="ok-card-date">{date_html}</div>
-                    <div class="ok-card-info">
-                        {teacher_html}
-                        <span class="ok-badge {badge_cls}">{row['indicator_id']}．{ind_name}</span>
-                    </div>
-                    {"<div class='ok-card-info'>" + status_html + "</div>" if status_html else ""}
-                </div>
-                """, unsafe_allow_html=True)
+                # 整張卡片內容塞進 label（純文字，避免 HTML 渲染問題）
+                label = f"""**{row['subject']}｜{row['unit']}**
 
-                if st.button("→ 進入", key=f"{key_prefix}_{row['session_id']}", use_container_width=True):
+{date_line}
+
+{teacher_line}{row['indicator_id']}．{ind_name}
+
+{status_line}"""
+
+                if st.button(label, key=f"{key_prefix}_{row['session_id']}",
+                             use_container_width=True):
                     st.session_state[on_click_key] = row["session_id"]
                     if on_click_key == "view_session_id":
                         st.switch_page("pages/5_我的被觀課紀錄.py")
@@ -273,7 +303,6 @@ with tab2:
                 for j, (_, row) in enumerate(chunk.iterrows()):
                     with cols[j]:
                         ind_name  = get_indicator_name(row["indicator_id"])
-                        badge_cls = IND_BADGE.get(row["indicator_id"], "ok-badge-gray")
                         d = row["date_obj"]
                         diff = (d - today).days if d else 0
                         days_label = "今天" if diff == 0 else f"{diff} 天後"
@@ -285,29 +314,28 @@ with tab2:
                                 (obs_df["observer_email"] == user["email"])
                             ].empty
 
-                        st.markdown(f"""
-                        <div class="ok-session-card">
-                            <div class="ok-card-subject">{row['subject']}｜{row['unit']}</div>
-                            <div class="ok-card-date">
-                                <span>{row['date']}</span>
-                                <span class="ok-days-badge">({days_label})</span>
-                                <span>{row['period']}</span>
-                            </div>
-                            <div class="ok-card-info">
-                                <span>👤 {row['teacher_name']}</span>
-                                <span class="ok-badge {badge_cls}">{row['indicator_id']}．{ind_name}</span>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-
                         if is_own:
-                            st.markdown('<span class="ok-badge ok-badge-gray" style="margin-top:4px;display:inline-flex;">自己的課</span>', unsafe_allow_html=True)
+                            status = "自己的課"
                         elif already:
-                            st.markdown('<span class="ok-badge ok-badge-green" style="margin-top:4px;display:inline-flex;">✅ 已填寫</span>', unsafe_allow_html=True)
+                            status = "✅ 已填寫"
                         else:
-                            if st.button("填寫觀課紀錄 →", key=f"obs_{row['session_id']}", type="primary", use_container_width=True):
-                                st.session_state["selected_session"] = row.to_dict()
-                                st.switch_page("pages/4_填寫觀課紀錄.py")
+                            status = "→ 點擊填寫觀課紀錄"
+
+                        label = f"""**{row['subject']}｜{row['unit']}**
+
+{row['date']} ({days_label})　{row['period']}
+
+👤 {row['teacher_name']}　{row['indicator_id']}．{ind_name}
+
+{status}"""
+
+                        clicked = st.button(label,
+                            key=f"obs_{row['session_id']}",
+                            use_container_width=True,
+                            disabled=(is_own or already))
+                        if clicked and not is_own and not already:
+                            st.session_state["selected_session"] = row.to_dict()
+                            st.switch_page("pages/4_填寫觀課紀錄.py")
 
 # ════════════════════════════════════════
 # 分頁三：已結束觀課（近30筆）
