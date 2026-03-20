@@ -40,24 +40,24 @@ st.markdown("""
     border-color: #7B8FA1;
 }
 .ok-card-subject {
-    font-size: 17px;
+    font-size: 20px;
     font-weight: 700;
     color: #3D3B38;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 .ok-card-date {
-    font-size: 14px;
+    font-size: 18px;
     color: #857F76;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
     display: flex;
     align-items: center;
     gap: 10px;
 }
 .ok-card-info {
-    font-size: 13px;
+    font-size: 16px;
     color: #857F76;
     display: flex;
     align-items: center;
@@ -67,8 +67,8 @@ st.markdown("""
 }
 .ok-badge {
     display: inline-flex; align-items: center;
-    font-size: 12px; font-weight: 600;
-    padding: 3px 10px; border-radius: 20px; white-space: nowrap;
+    font-size: 14px; font-weight: 600;
+    padding: 4px 12px; border-radius: 20px; white-space: nowrap;
 }
 .ok-badge-blue  { background: #DDE4EC; color: #5C7080; }
 .ok-badge-green { background: #D8E5DC; color: #4A7059; }
