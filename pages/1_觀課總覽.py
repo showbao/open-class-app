@@ -2,45 +2,15 @@ import streamlit as st
 import datetime
 import json
 from utils.auth import require_login, logout
-from utils.style import inject_global_css
+from utils.style import inject_global_css, MORANDI
 from utils.sheets import (get_sessions_all, get_sessions_by_teacher,
                            get_observations_all, get_observations_by_session,
                            get_indicator_name, add_session, get_indicators,
-                           has_observation, is_admin, get_sub_indicators)
+                           is_admin, get_sub_indicators)
 from utils.drive import decode_photo_urls
 
 st.set_page_config(page_title="觀課總覽", page_icon="📋", layout="wide")
 inject_global_css()
-
-# 移除 tab 分隔線
-st.markdown("""
-<style>
-.stTabs [data-baseweb="tab-border"] { display: none !important; }
-/* 卡片 Grid：電腦3欄，手機1欄 */
-.ok-card-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-    margin-bottom: 4px;
-}
-@media (max-width: 768px) {
-    .ok-card-grid { grid-template-columns: 1fr !important; }
-}
-.ok-grid-card {
-    background: white;
-    border-radius: 16px;
-    border: 1px solid #E8ECF2;
-    padding: 1rem 1.1rem;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-    transition: box-shadow 0.2s, transform 0.15s;
-}
-.ok-grid-card:hover {
-    box-shadow: 0 6px 20px rgba(0,0,0,0.09);
-    transform: translateY(-2px);
-}
-</style>
-""", unsafe_allow_html=True)
-
 user = require_login()
 
 SUBJECTS = ["國語","數學","英語","社會","自然","生活","美術","音樂","體育","健康","資訊","綜合","彈性"]
@@ -52,7 +22,7 @@ with st.sidebar:
     st.markdown(f"""
         <div style="padding:1rem 0.5rem 0.5rem;">
             <div style="width:44px;height:44px;border-radius:50%;
-                background:linear-gradient(135deg,#667eea,#764ba2);
+                background:linear-gradient(135deg,#7B8FA1,#A8937A);
                 display:flex;align-items:center;justify-content:center;
                 font-size:16px;font-weight:700;color:white;margin-bottom:10px;">
                 {user['name'][0]}
@@ -61,8 +31,6 @@ with st.sidebar:
             <div style="font-size:11px;color:#94A3B8;margin-top:2px;">{user['email']}</div>
         </div>
     """, unsafe_allow_html=True)
-    if is_admin(user["email"]):
-        st.markdown('<div style="margin:0 0.5rem 0.5rem;"><span class="ok-badge ok-badge-blue">🔑 主管身份</span></div>', unsafe_allow_html=True)
     st.markdown("<hr style='border-color:rgba(255,255,255,0.1);margin:8px 0;'>", unsafe_allow_html=True)
     st.page_link("pages/1_觀課總覽.py",        label="📋 總覽")
     st.page_link("pages/5_我的被觀課紀錄.py",  label="📂 我的被觀課紀錄")
@@ -88,11 +56,35 @@ def parse_date(d):
 st.markdown(f"""
 <div style="margin-bottom:1.2rem;">
     <h1 style="margin:0 0 4px;">📋 觀課總覽</h1>
-    <p style="color:#7C8BA0;font-size:14px;margin:0;">歡迎回來，{user['name']}！</p>
+    <p style="color:{MORANDI['text_sub']};font-size:14px;margin:0;">歡迎回來，{user['name']}！</p>
 </div>
 """, unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(["📌 我的觀課列表", "🏫 學校近期觀課", "📁 已結束觀課"])
+
+# ════════════════════════
+# 共用：渲染卡片 HTML
+# ════════════════════════
+def render_card(subject, unit, date_str, period, teacher_name, indicator_id,
+                extra_badge="", days_label=""):
+    ind_name  = get_indicator_name(indicator_id)
+    badge_cls = IND_BADGE.get(indicator_id, "ok-badge-gray")
+    date_part = f"{date_str}"
+    if days_label:
+        date_part += f' <b style="color:{MORANDI["primary"]};">({days_label})</b>'
+    return f"""
+    <div class="ok-grid-card">
+        <div class="ok-card-title">{subject}｜{unit}</div>
+        <div class="ok-card-row">{date_part}　{period}</div>
+        <div class="ok-card-row">
+            {f'<span>👤 {teacher_name}</span>' if teacher_name else ''}
+            <span class="ok-badge {badge_cls}">{indicator_id}．{ind_name}</span>
+        </div>
+        {f'<div class="ok-card-row" style="margin-top:4px;">{extra_badge}</div>' if extra_badge else ''}
+    </div>"""
+
+def render_grid(cards_html):
+    st.markdown(f'<div class="ok-card-grid">{"".join(cards_html)}</div>', unsafe_allow_html=True)
 
 # ════════════════════════════════════════
 # 分頁一：我的觀課列表
@@ -115,20 +107,17 @@ with tab1:
                 r_period = st.selectbox("節次", PERIODS, key="r_period")
             with rc3:
                 r_subject = st.selectbox("觀課科目", SUBJECTS, key="r_subject")
-
             r_unit = st.text_input("觀課單元", placeholder="例如：水的三態變化", key="r_unit")
             st.markdown("**選擇觀課大指標（擇一）**")
             r_indicator = st.radio("指標", options=list(indicator_labels.keys()),
                 format_func=lambda x: indicator_labels[x], horizontal=True,
                 label_visibility="collapsed", key="r_indicator")
-
             sub_items = indicators_df[indicators_df["indicator_id"] == r_indicator][["sub_id","sub_name"]].values.tolist()
             with st.expander(f"📌 {indicator_labels[r_indicator]} 子項目（共 {len(sub_items)} 項）", expanded=True):
                 cols_sub = st.columns(2)
                 for i, sub in enumerate(sub_items):
                     with cols_sub[i % 2]:
                         st.markdown(f'<span class="ok-badge ok-badge-blue">{sub[0]}</span> {sub[1]}', unsafe_allow_html=True)
-
             bc1, bc2 = st.columns(2)
             with bc1:
                 if st.button("✅ 確認送出登記", type="primary", use_container_width=True, key="submit_reg"):
@@ -150,37 +139,32 @@ with tab1:
                     st.rerun()
 
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-
     my_s = get_sessions_by_teacher(user["email"])
     if my_s.empty:
         st.info("您尚未登記任何公開觀課場次，請點上方「登記公開觀課」新增。")
     else:
         my_s = my_s.sort_values("date", ascending=False).reset_index(drop=True)
-        st.markdown(f"<p style='font-size:13px;color:#7C8BA0;margin-bottom:10px;'>共 <b>{len(my_s)}</b> 場</p>", unsafe_allow_html=True)
+        st.markdown(f"<p style='font-size:13px;color:{MORANDI['text_sub']};margin-bottom:10px;'>共 <b>{len(my_s)}</b> 場</p>", unsafe_allow_html=True)
 
-        # 每3筆一列
-        rows_data = [my_s.iloc[i:i+3] for i in range(0, len(my_s), 3)]
-        for chunk in rows_data:
-            cols_html = ""
+        # Grid 卡片（每3筆）
+        chunks = [my_s.iloc[i:i+3] for i in range(0, len(my_s), 3)]
+        for chunk in chunks:
+            cards = []
             for _, row in chunk.iterrows():
-                obs_count = len(obs_df[obs_df["session_id"] == row["session_id"]]) if not obs_df.empty else 0
-                ind_name  = get_indicator_name(row["indicator_id"])
-                badge_cls = IND_BADGE.get(row["indicator_id"], "ok-badge-gray")
-                has_ref   = bool(str(row.get("teacher_reflection","")).strip())
-                ref_badge = '<span class="ok-badge ok-badge-green">✅ 已填省思</span>' if has_ref else '<span class="ok-badge ok-badge-amber">⏳ 待填省思</span>'
-                cols_html += f"""
-                <div class="ok-grid-card">
-                    <div class="ok-card-title">{row['subject']}｜{row['unit']}</div>
-                    <div class="ok-card-meta" style="margin-top:8px;flex-direction:column;gap:5px;">
-                        <div>📅 {row['date']}　🕐 {row['period']}</div>
-                        <div style="display:flex;gap:5px;flex-wrap:wrap;">
-                            <span class="ok-badge {badge_cls}">{row['indicator_id']}．{ind_name}</span>
-                            <span class="ok-badge ok-badge-gray">👥 {obs_count} 人</span>
-                        </div>
-                        <div>{ref_badge}</div>
-                    </div>
-                </div>"""
-            st.markdown(f'<div class="ok-card-grid">{cols_html}</div>', unsafe_allow_html=True)
+                has_ref = bool(str(row.get("teacher_reflection","")).strip())
+                badge = '<span class="ok-badge ok-badge-green">✅ 已填省思</span>' if has_ref else '<span class="ok-badge ok-badge-amber">⏳ 待填省思</span>'
+                cards.append(render_card(
+                    row['subject'], row['unit'], row['date'], row['period'],
+                    "", row['indicator_id'], extra_badge=badge
+                ))
+            render_grid(cards)
+            # 每列對應的 Streamlit 按鈕（點「查看被觀課紀錄」）
+            btn_cols = st.columns(len(chunk))
+            for idx, (_, row) in enumerate(chunk.iterrows()):
+                with btn_cols[idx]:
+                    if st.button(f"查看紀錄", key=f"my_{row['session_id']}", use_container_width=True):
+                        st.session_state["view_session_id"] = row["session_id"]
+                        st.switch_page("pages/5_我的被觀課紀錄.py")
 
 # ════════════════════════════════════════
 # 分頁二：學校近期觀課（未來場次）
@@ -197,58 +181,44 @@ with tab2:
         if upcoming.empty:
             st.info("目前沒有即將到來的觀課場次")
         else:
-            st.markdown(f"<p style='font-size:13px;color:#7C8BA0;margin-bottom:10px;'>共 <b>{len(upcoming)}</b> 場即將到來</p>", unsafe_allow_html=True)
-
-            rows_data = [upcoming.iloc[i:i+3] for i in range(0, len(upcoming), 3)]
-            for chunk in rows_data:
-                cols_html = ""
+            st.markdown(f"<p style='font-size:13px;color:{MORANDI['text_sub']};margin-bottom:10px;'>共 <b>{len(upcoming)}</b> 場即將到來</p>", unsafe_allow_html=True)
+            chunks = [upcoming.iloc[i:i+3] for i in range(0, len(upcoming), 3)]
+            for chunk in chunks:
+                cards = []
                 for _, row in chunk.iterrows():
-                    obs_count = len(obs_df[obs_df["session_id"] == row["session_id"]]) if not obs_df.empty else 0
+                    days_diff  = (row["date_obj"] - today).days
+                    days_label = "今天" if days_diff == 0 else f"{days_diff} 天後"
                     is_own = row["teacher_email"] == user["email"]
                     already = False
                     if not obs_df.empty:
-                        already = not obs_df[(obs_df["session_id"] == row["session_id"]) &
-                                             (obs_df["observer_email"] == user["email"])].empty
-                    ind_name  = get_indicator_name(row["indicator_id"])
-                    badge_cls = IND_BADGE.get(row["indicator_id"], "ok-badge-gray")
-                    days_diff = (row["date_obj"] - today).days
-                    days_label = "今天" if days_diff == 0 else f"{days_diff} 天後"
-
-                    if is_own:
-                        action = '<span class="ok-badge ok-badge-blue">自己的課</span>'
-                    elif already:
-                        action = '<span class="ok-badge ok-badge-green">✅ 已填寫</span>'
-                    else:
-                        action = f'<span class="ok-badge ok-badge-blue" style="cursor:pointer;">填寫觀課紀錄</span>'
-
-                    cols_html += f"""
-                    <div class="ok-grid-card">
-                        <div class="ok-card-title">{row['subject']}｜{row['unit']}</div>
-                        <div class="ok-card-meta" style="margin-top:8px;flex-direction:column;gap:5px;">
-                            <div>📅 {row['date']} <b style="color:#2563EB;">({days_label})</b></div>
-                            <div>🕐 {row['period']}　👤 {row['teacher_name']}</div>
-                            <div style="display:flex;gap:5px;flex-wrap:wrap;">
-                                <span class="ok-badge {badge_cls}">{row['indicator_id']}．{ind_name}</span>
-                                <span class="ok-badge ok-badge-gray">👥 {obs_count}</span>
-                            </div>
-                            <div>{action}</div>
-                        </div>
-                    </div>"""
-                st.markdown(f'<div class="ok-card-grid">{cols_html}</div>', unsafe_allow_html=True)
-
-            # 填寫按鈕（Streamlit 原生，隱藏在 HTML 下方對應）
-            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-            for _, row in upcoming.iterrows():
-                is_own = row["teacher_email"] == user["email"]
-                already = False
-                if not obs_df.empty:
-                    already = not obs_df[(obs_df["session_id"] == row["session_id"]) &
-                                         (obs_df["observer_email"] == user["email"])].empty
-                if not is_own and not already:
-                    if st.button(f"填寫：{row['subject']}｜{row['unit']} ({row['date']})",
-                                 key=f"obs_{row['session_id']}"):
-                        st.session_state["selected_session"] = row.to_dict()
-                        st.switch_page("pages/4_填寫觀課紀錄.py")
+                        already = not obs_df[
+                            (obs_df["session_id"] == row["session_id"]) &
+                            (obs_df["observer_email"] == user["email"])
+                        ].empty
+                    cards.append(render_card(
+                        row['subject'], row['unit'], row['date'], row['period'],
+                        row['teacher_name'], row['indicator_id'], days_label=days_label
+                    ))
+                render_grid(cards)
+                # 對應按鈕列
+                btn_cols = st.columns(len(chunk))
+                for idx, (_, row) in enumerate(chunk.iterrows()):
+                    is_own = row["teacher_email"] == user["email"]
+                    already = False
+                    if not obs_df.empty:
+                        already = not obs_df[
+                            (obs_df["session_id"] == row["session_id"]) &
+                            (obs_df["observer_email"] == user["email"])
+                        ].empty
+                    with btn_cols[idx]:
+                        if is_own:
+                            st.markdown('<span class="ok-badge ok-badge-gray">自己的課</span>', unsafe_allow_html=True)
+                        elif already:
+                            st.markdown('<span class="ok-badge ok-badge-green">✅ 已填寫</span>', unsafe_allow_html=True)
+                        else:
+                            if st.button("填寫觀課紀錄 →", key=f"obs_{row['session_id']}", type="primary", use_container_width=True):
+                                st.session_state["selected_session"] = row.to_dict()
+                                st.switch_page("pages/4_填寫觀課紀錄.py")
 
 # ════════════════════════════════════════
 # 分頁三：已結束觀課（近30筆）
@@ -267,12 +237,11 @@ with tab3:
         elif "ended_session_id" in st.session_state:
             # ── 詳情頁 ──
             sel_id  = st.session_state["ended_session_id"]
-            sel_row = ended[ended["session_id"] == sel_id]
-            if sel_row.empty:
+            sel_rows = ended[ended["session_id"] == sel_id]
+            if sel_rows.empty:
                 del st.session_state["ended_session_id"]
                 st.rerun()
-
-            sel     = sel_row.iloc[0]
+            sel     = sel_rows.iloc[0]
             sel_obs = get_observations_by_session(sel_id)
             ind_name  = get_indicator_name(sel["indicator_id"])
             badge_cls = IND_BADGE.get(sel["indicator_id"], "ok-badge-gray")
@@ -282,11 +251,10 @@ with tab3:
                 st.rerun()
 
             st.markdown(f"""
-            <div class="ok-grid-card" style="margin-bottom:1rem;">
+            <div class="ok-grid-card" style="cursor:default;margin-bottom:1rem;">
                 <div class="ok-card-title" style="font-size:17px;">{sel['subject']}｜{sel['unit']}</div>
-                <div class="ok-card-meta" style="margin-top:8px;">
-                    <span>📅 {sel['date']}</span>
-                    <span>🕐 {sel['period']}</span>
+                <div class="ok-card-row">{sel['date']}　{sel['period']}</div>
+                <div class="ok-card-row">
                     <span>👤 {sel['teacher_name']}</span>
                     <span class="ok-badge {badge_cls}">{sel['indicator_id']}．{ind_name}</span>
                 </div>
@@ -328,37 +296,27 @@ with tab3:
                 st.markdown(teacher_ref or "（未填寫）")
                 st.markdown("**🔧 未來調整方向**")
                 st.markdown(teacher_adj or "（未填寫）")
-
         else:
-            # ── 列表頁（Grid 3欄）──
-            st.markdown(f"<p style='font-size:13px;color:#7C8BA0;margin-bottom:10px;'>最近 <b>{len(ended)}</b> 場（已結束）</p>", unsafe_allow_html=True)
-            rows_data = [ended.iloc[i:i+3] for i in range(0, len(ended), 3)]
-            for chunk in rows_data:
-                cols_html = ""
+            # ── 列表頁 ──
+            st.markdown(f"<p style='font-size:13px;color:{MORANDI['text_sub']};margin-bottom:10px;'>最近 <b>{len(ended)}</b> 場（已結束）</p>", unsafe_allow_html=True)
+            chunks = [ended.iloc[i:i+3] for i in range(0, len(ended), 3)]
+            for chunk in chunks:
+                cards = []
                 for _, row in chunk.iterrows():
-                    obs_count    = len(obs_df[obs_df["session_id"] == row["session_id"]]) if not obs_df.empty else 0
-                    ind_name     = get_indicator_name(row["indicator_id"])
-                    badge_cls    = IND_BADGE.get(row["indicator_id"], "ok-badge-gray")
                     teacher_done = bool(str(row.get("teacher_reflection","")).strip())
+                    obs_count = len(obs_df[obs_df["session_id"] == row["session_id"]]) if not obs_df.empty else 0
                     obs_badge = '<span class="ok-badge ok-badge-green">觀課 ✅</span>' if obs_count > 0 else '<span class="ok-badge ok-badge-gray">觀課 ⬜</span>'
                     ref_badge = '<span class="ok-badge ok-badge-green">省思 ✅</span>' if teacher_done else '<span class="ok-badge ok-badge-gray">省思 ⬜</span>'
-                    cols_html += f"""
-                    <div class="ok-grid-card">
-                        <div class="ok-card-title">{row['subject']}｜{row['unit']}</div>
-                        <div class="ok-card-meta" style="margin-top:8px;flex-direction:column;gap:5px;">
-                            <div>📅 {row['date']}　🕐 {row['period']}</div>
-                            <div>👤 {row['teacher_name']}</div>
-                            <div><span class="ok-badge {badge_cls}">{row['indicator_id']}．{ind_name}</span></div>
-                            <div style="display:flex;gap:5px;">{obs_badge} {ref_badge}</div>
-                        </div>
-                    </div>"""
-                st.markdown(f'<div class="ok-card-grid">{cols_html}</div>', unsafe_allow_html=True)
-
-            # 查看按鈕
-            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-            btn_cols = st.columns(3)
-            for idx, (_, row) in enumerate(ended.iterrows()):
-                with btn_cols[idx % 3]:
-                    if st.button(f"查看：{row['subject']}｜{row['unit'][:6]}", key=f"ended_{row['session_id']}", use_container_width=True):
-                        st.session_state["ended_session_id"] = row["session_id"]
-                        st.rerun()
+                    cards.append(render_card(
+                        row['subject'], row['unit'], row['date'], row['period'],
+                        row['teacher_name'], row['indicator_id'],
+                        extra_badge=f"{obs_badge} {ref_badge}"
+                    ))
+                render_grid(cards)
+                # 對應查看按鈕
+                btn_cols = st.columns(len(chunk))
+                for idx, (_, row) in enumerate(chunk.iterrows()):
+                    with btn_cols[idx]:
+                        if st.button("查看紀錄", key=f"ended_{row['session_id']}", use_container_width=True):
+                            st.session_state["ended_session_id"] = row["session_id"]
+                            st.rerun()
