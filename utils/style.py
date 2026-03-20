@@ -171,8 +171,8 @@ def inject_global_css():
     /* ── Badge ── */
     .ok-badge {{
         display: inline-flex; align-items: center;
-        font-size: 11px; font-weight: 600;
-        padding: 3px 10px; border-radius: 20px; white-space: nowrap;
+        font-size: 14px; font-weight: 600;
+        padding: 4px 12px; border-radius: 20px; white-space: nowrap;
     }}
     .ok-badge-blue  {{ background: #DDE4EC; color: {MORANDI['primary_dark']}; }}
     .ok-badge-green {{ background: #D8E5DC; color: #4A7059; }}
